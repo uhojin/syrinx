@@ -1,0 +1,8 @@
+.build/
+.swiftpm/
+*.app
+.DS_Store
+xcuserdata/
+Driver/.build/
+Driver/*.driver
+*.dmg

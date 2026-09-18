@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-14
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set version in Info.plist
+        env:
+          APP_VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" Resources/Info.plist
+
+      - name: Build
+        run: ./Scripts/build-app.sh release
+
+      - name: Create DMG
+        env:
+          APP_VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          DMG_NAME="Syrinx-${APP_VERSION}.dmg"
+
+          mkdir -p dmg-staging
+          cp -R Syrinx.app dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+
+          hdiutil create -volname "Syrinx" \
+            -srcfolder dmg-staging \
+            -ov -format UDZO \
+            "$DMG_NAME"
+
+          echo "DMG_NAME=$DMG_NAME" >> "$GITHUB_ENV"
+          echo "DMG_SHA256=$(shasum -a 256 "$DMG_NAME" | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.DMG_NAME }}
+          generate_release_notes: true
+
+      - name: Update Homebrew tap
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.TAP_TOKEN }}
+          repository: uhojin/homebrew-tap
+          event-type: update-cask
+          client-payload: |
+            {
+              "cask": "syrinx",
+              "version": "${{ steps.version.outputs.VERSION }}",
+              "sha256": "${{ env.DMG_SHA256 }}"
+            }
